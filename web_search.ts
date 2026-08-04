@@ -5,6 +5,8 @@ const REQUEST_TIMEOUT_MS = 120_000;
 
 type SearchDepth = "basic" | "advanced" | "fast" | "ultra-fast";
 type TimeRange = "day" | "week" | "month" | "year";
+type Topic = "general" | "news" | "finance";
+type IncludeAnswer = "basic" | "advanced";
 
 interface TavilyResult {
 	title: string;
@@ -52,7 +54,10 @@ function formatResults(data: TavilyResponse): string {
 
 	lines.push("Sources:");
 	for (const [index, result] of results.entries()) {
-		lines.push(`${index + 1}. [${result.title}](${result.url})`);
+		const published = result.published_date
+			? ` (published: ${result.published_date})`
+			: "";
+		lines.push(`${index + 1}. [${result.title}](${result.url})${published}`);
 		if (result.content) {
 			lines.push(`   ${result.content.trim()}`);
 		}
@@ -99,7 +104,7 @@ async function callTavilySearch(body: unknown): Promise<TavilyResponse> {
 
 export default tool({
 	description:
-		"Searches the live web using Tavily. Use this whenever you need current information that is not in the project or your training data. Returns ranked web results with source links and content snippets. Uses a Tavily API key if TAVILY_API_KEY is set, otherwise falls back to Tavily's free keyless search.",
+		"Searches the live web using Tavily. Use this whenever you need current information that is not in the project or your training data. Returns ranked web results with source links and content snippets. For real-time news and current events, use topic \"news\" together with time_range. Uses a Tavily API key if TAVILY_API_KEY is set, otherwise falls back to Tavily's free keyless search.",
 	args: {
 		query: tool.schema.string().describe("The web search query"),
 		max_results: tool.schema
@@ -110,16 +115,47 @@ export default tool({
 			.enum(["basic", "advanced", "fast", "ultra-fast"] as SearchDepth[])
 			.optional()
 			.describe("Latency vs. relevance tradeoff (default: advanced)"),
+		topic: tool.schema
+			.enum(["general", "news", "finance"] as Topic[])
+			.optional()
+			.describe(
+				"Search category: general (default), news (real-time updates), or finance",
+			),
 		time_range: tool.schema
 			.enum(["day", "week", "month", "year"] as TimeRange[])
 			.optional()
 			.describe("Limit results to a recent time range"),
-		include_answer: tool.schema
-			.boolean()
+		start_date: tool.schema
+			.string()
 			.optional()
 			.describe(
-				"Include an LLM-generated answer in the response (default: false)",
+				"Only return results published or updated after this date (YYYY-MM-DD)",
 			),
+		end_date: tool.schema
+			.string()
+			.optional()
+			.describe(
+				"Only return results published or updated before this date (YYYY-MM-DD)",
+			),
+		include_answer: tool.schema
+			.union([
+				tool.schema.boolean(),
+				tool.schema.enum(["basic", "advanced"] as IncludeAnswer[]),
+			])
+			.optional()
+			.describe(
+				"Include an LLM-generated answer in the response: true/\"basic\" for a quick answer, \"advanced\" for a detailed one (default: false)",
+			),
+		include_domains: tool.schema
+			.array(tool.schema.string())
+			.optional()
+			.describe(
+				"Only return results from these domains (e.g. [\"arxiv.org\"])",
+			),
+		exclude_domains: tool.schema
+			.array(tool.schema.string())
+			.optional()
+			.describe("Exclude results from these domains"),
 	},
 	async execute(args) {
 		const body: Record<string, unknown> = {
@@ -129,8 +165,23 @@ export default tool({
 			include_answer: args.include_answer ?? false,
 		};
 
+		if (args.topic) {
+			body.topic = args.topic;
+		}
 		if (args.time_range) {
 			body.time_range = args.time_range;
+		}
+		if (args.start_date) {
+			body.start_date = args.start_date;
+		}
+		if (args.end_date) {
+			body.end_date = args.end_date;
+		}
+		if (args.include_domains) {
+			body.include_domains = args.include_domains;
+		}
+		if (args.exclude_domains) {
+			body.exclude_domains = args.exclude_domains;
 		}
 
 		try {

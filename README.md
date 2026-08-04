@@ -13,7 +13,7 @@ The tool exposes a `web_search` function to OpenCode. When called, it sends a re
 The tool prefers an explicit API key and falls back to Tavily's free keyless mode.
 
 - Set `TAVILY_API_KEY` in your environment to use your Tavily account and its higher rate limits.
-- If `TAVILY_API_KEY` is not set, the tool sends `X-Tavily-Access-Mode: keyless` and works without any account or key. Keyless mode is rate-limited; if you hit the cap, sign up for a free Tavily API key at https://app.tavily.com and set `TAVILY_API_KEY`.
+- If `TAVILY_API_KEY` is not set, the tool sends `X-Tavily-Access-Mode: keyless` and works without any account or key. Keyless mode is rate-limited; if you hit the cap, Tavily returns a natural-language message explaining what happened, so the agent can tell you. Sign up for a free Tavily API key at https://app.tavily.com and set `TAVILY_API_KEY` to keep going - no code changes needed.
 
 ## Requirements
 
@@ -43,15 +43,29 @@ What is the latest stable Linux kernel version?
 
 OpenCode can call `web_search` with a `query` argument. Optional arguments include:
 
-- `max_results` - Maximum number of results (default: 5)
-- `search_depth` - `basic`, `advanced`, `fast`, or `ultra-fast` (default: `advanced`)
+- `max_results` - Maximum number of results (default: 5, API max: 20)
+- `search_depth` - `basic`, `advanced`, `fast`, or `ultra-fast` (default: `advanced`; note `advanced` costs 2 API credits, the others cost 1)
+- `topic` - `general` (default), `news` (real-time updates), or `finance`
 - `time_range` - `day`, `week`, `month`, or `year`
-- `include_answer` - Request an LLM-generated answer in addition to sources (default: `false`)
+- `start_date` / `end_date` - Precise date window in `YYYY-MM-DD` format, based on publish or last-updated date
+- `include_answer` - Request an LLM-generated answer in addition to sources: `true`/`"basic"` for a quick answer, `"advanced"` for a detailed one (default: `false`)
+- `include_domains` - Only return results from these domains
+- `exclude_domains` - Exclude results from these domains
 
-Example:
+Results include each source's publish date when available, which helps judge freshness.
+
+Examples:
 
 ```
 Search the web for recent Rust release notes, max_results=3, time_range=month.
+```
+
+```
+Search for today's tech news, topic=news, time_range=day.
+```
+
+```
+Search arxiv.org for papers on mixture-of-experts routing, include_domains=["arxiv.org"].
 ```
 
 ## Project-local install
