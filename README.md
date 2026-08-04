@@ -1,0 +1,71 @@
+# opencode-tavily-web-search
+
+A custom [OpenCode](https://opencode.ai/) tool that brings live web search to OpenCode through the [Tavily](https://tavily.com) API.
+
+This tool only uses Tavily's **web search** endpoint. It does not enable Extract, Crawl, Map, or Research.
+
+## What it does
+
+The tool exposes a `web_search` function to OpenCode. When called, it sends a request directly to `https://api.tavily.com/search` and returns ranked results with source links and content snippets.
+
+## Authentication
+
+The tool prefers an explicit API key and falls back to Tavily's free keyless mode.
+
+- Set `TAVILY_API_KEY` in your environment to use your Tavily account and its higher rate limits.
+- If `TAVILY_API_KEY` is not set, the tool sends `X-Tavily-Access-Mode: keyless` and works without any account or key. Keyless mode is rate-limited; if you hit the cap, sign up for a free Tavily API key at https://app.tavily.com and set `TAVILY_API_KEY`.
+
+## Requirements
+
+- [OpenCode](https://opencode.ai/) installed
+- An environment variable `TAVILY_API_KEY` (optional but recommended)
+
+## Installation
+
+1. Copy the tool file into your global OpenCode tools directory:
+
+   ```bash
+   mkdir -p ~/.config/opencode/tools
+   cp web_search.ts ~/.config/opencode/tools/web_search.ts
+   ```
+
+2. Restart OpenCode.
+
+After restart, the `web_search` tool will appear alongside built-in tools like `webfetch` and `bash`.
+
+## Usage
+
+Ask OpenCode anything that needs live web data:
+
+```
+What is the latest stable Linux kernel version?
+```
+
+OpenCode can call `web_search` with a `query` argument. Optional arguments include:
+
+- `max_results` - Maximum number of results (default: 5)
+- `search_depth` - `basic`, `advanced`, `fast`, or `ultra-fast` (default: `advanced`)
+- `time_range` - `day`, `week`, `month`, or `year`
+- `include_answer` - Request an LLM-generated answer in addition to sources (default: `false`)
+
+Example:
+
+```
+Search the web for recent Rust release notes, max_results=3, time_range=month.
+```
+
+## Project-local install
+
+To make the tool available only inside a specific project, copy `web_search.ts` to `.opencode/tools/web_search.ts` at the project root instead of the global directory.
+
+## Files
+
+- `web_search.ts` - OpenCode tool definition. Discovered automatically from `~/.config/opencode/tools/` or `.opencode/tools/`.
+- `README.md` - This file.
+
+## Notes
+
+- No `opencode.json` changes are required. OpenCode auto-discovers tools placed in `~/.config/opencode/tools/` or `.opencode/tools/`.
+- The tool uses `fetch` directly, so no extra Python dependencies or backend scripts are needed.
+- Tavily recommends `search_depth: "advanced"` for agent use; this tool uses that default.
+- If you need Tavily's Extract, Crawl, Map, or Research features, use the official [opencode-tavily](https://github.com/tavily-ai/opencode-tavily) plugin instead.
