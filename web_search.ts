@@ -1,4 +1,4 @@
-import { tool } from "@opencode-ai/plugin";
+import { Plugin } from "@opencode/plugin";
 
 const TAVILY_API_URL = "https://api.tavily.com/search";
 const REQUEST_TIMEOUT_MS = 120_000;
@@ -7,6 +7,19 @@ type SearchDepth = "basic" | "advanced" | "fast" | "ultra-fast";
 type TimeRange = "day" | "week" | "month" | "year";
 type Topic = "general" | "news" | "finance";
 type IncludeAnswer = "basic" | "advanced";
+
+interface WebSearchArgs {
+	query: string;
+	max_results?: number;
+	search_depth?: SearchDepth;
+	topic?: Topic;
+	time_range?: TimeRange;
+	start_date?: string;
+	end_date?: string;
+	include_answer?: boolean | IncludeAnswer;
+	include_domains?: string[];
+	exclude_domains?: string[];
+}
 
 interface TavilyResult {
 	title: string;
@@ -23,6 +36,9 @@ interface TavilyResponse {
 	response_time?: number;
 	images?: unknown[];
 }
+
+const DESCRIPTION =
+	'Searches the live web using Tavily. Use this whenever you need current information that is not in the project or your training data. Returns ranked web results with source links and content snippets. For real-time news and current events, use topic "news" together with time_range. Uses a Tavily API key if TAVILY_API_KEY is set, otherwise falls back to Tavily\'s free keyless search.';
 
 function buildHeaders(): Record<string, string> {
 	const apiKey = process.env.TAVILY_API_KEY;
@@ -66,9 +82,20 @@ function formatResults(data: TavilyResponse): string {
 	return lines.join("\n");
 }
 
-async function callTavilySearch(body: unknown): Promise<TavilyResponse> {
+async function callTavilySearch(
+	body: unknown,
+	signal?: AbortSignal,
+): Promise<TavilyResponse> {
 	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+	const abortFromCaller = () => controller.abort(signal?.reason);
+	if (signal) {
+		if (signal.aborted) controller.abort(signal.reason);
+		else signal.addEventListener("abort", abortFromCaller, { once: true });
+	}
+	const timeout = setTimeout(
+		() => controller.abort(new Error("request timed out")),
+		REQUEST_TIMEOUT_MS,
+	);
 
 	try {
 		const response = await fetch(TAVILY_API_URL, {
@@ -99,97 +126,118 @@ async function callTavilySearch(body: unknown): Promise<TavilyResponse> {
 		return (await response.json()) as TavilyResponse;
 	} finally {
 		clearTimeout(timeout);
+		signal?.removeEventListener("abort", abortFromCaller);
 	}
 }
 
-export default tool({
-	description:
-		"Searches the live web using Tavily. Use this whenever you need current information that is not in the project or your training data. Returns ranked web results with source links and content snippets. For real-time news and current events, use topic \"news\" together with time_range. Uses a Tavily API key if TAVILY_API_KEY is set, otherwise falls back to Tavily's free keyless search.",
-	args: {
-		query: tool.schema.string().describe("The web search query"),
-		max_results: tool.schema
-			.number()
-			.optional()
-			.describe("Maximum number of results to return (default: 5)"),
-		search_depth: tool.schema
-			.enum(["basic", "advanced", "fast", "ultra-fast"] as SearchDepth[])
-			.optional()
-			.describe("Latency vs. relevance tradeoff (default: advanced)"),
-		topic: tool.schema
-			.enum(["general", "news", "finance"] as Topic[])
-			.optional()
-			.describe(
-				"Search category: general (default), news (real-time updates), or finance",
-			),
-		time_range: tool.schema
-			.enum(["day", "week", "month", "year"] as TimeRange[])
-			.optional()
-			.describe("Limit results to a recent time range"),
-		start_date: tool.schema
-			.string()
-			.optional()
-			.describe(
-				"Only return results published or updated after this date (YYYY-MM-DD)",
-			),
-		end_date: tool.schema
-			.string()
-			.optional()
-			.describe(
-				"Only return results published or updated before this date (YYYY-MM-DD)",
-			),
-		include_answer: tool.schema
-			.union([
-				tool.schema.boolean(),
-				tool.schema.enum(["basic", "advanced"] as IncludeAnswer[]),
-			])
-			.optional()
-			.describe(
-				"Include an LLM-generated answer in the response: true/\"basic\" for a quick answer, \"advanced\" for a detailed one (default: false)",
-			),
-		include_domains: tool.schema
-			.array(tool.schema.string())
-			.optional()
-			.describe(
-				"Only return results from these domains (e.g. [\"arxiv.org\"])",
-			),
-		exclude_domains: tool.schema
-			.array(tool.schema.string())
-			.optional()
-			.describe("Exclude results from these domains"),
-	},
-	async execute(args) {
-		const body: Record<string, unknown> = {
-			query: args.query,
-			max_results: args.max_results ?? 5,
-			search_depth: args.search_depth ?? "advanced",
-			include_answer: args.include_answer ?? false,
-		};
+export default Plugin.define({
+	id: "tavily-web-search",
+	async setup(ctx) {
+		await ctx.tool.transform((editor) => {
+			editor.add({
+				name: "web_search",
+				description: DESCRIPTION,
+				input: {
+					type: "object",
+					properties: {
+						query: {
+							type: "string",
+							description: "The web search query",
+						},
+						max_results: {
+							type: "number",
+							description: "Maximum number of results to return (default: 5)",
+						},
+						search_depth: {
+							type: "string",
+							enum: ["basic", "advanced", "fast", "ultra-fast"],
+							description: "Latency vs. relevance tradeoff (default: advanced)",
+						},
+						topic: {
+							type: "string",
+							enum: ["general", "news", "finance"],
+							description:
+								"Search category: general (default), news (real-time updates), or finance",
+						},
+						time_range: {
+							type: "string",
+							enum: ["day", "week", "month", "year"],
+							description: "Limit results to a recent time range",
+						},
+						start_date: {
+							type: "string",
+							description:
+								"Only return results published or updated after this date (YYYY-MM-DD)",
+						},
+						end_date: {
+							type: "string",
+							description:
+								"Only return results published or updated before this date (YYYY-MM-DD)",
+						},
+						include_answer: {
+							anyOf: [
+								{ type: "boolean" },
+								{ type: "string", enum: ["basic", "advanced"] },
+							],
+							description:
+								'Include an LLM-generated answer in the response: true/"basic" for a quick answer, "advanced" for a detailed one (default: false)',
+						},
+						include_domains: {
+							type: "array",
+							items: { type: "string" },
+							description:
+								'Only return results from these domains (e.g. ["arxiv.org"])',
+						},
+						exclude_domains: {
+							type: "array",
+							items: { type: "string" },
+							description: "Exclude results from these domains",
+						},
+					},
+					required: ["query"],
+					additionalProperties: false,
+				},
+				async execute(
+					input: unknown,
+					context: { signal?: AbortSignal },
+				): Promise<{ content: string }> {
+					const args = input as WebSearchArgs;
+					const body: Record<string, unknown> = {
+						query: args.query,
+						max_results: args.max_results ?? 5,
+						search_depth: args.search_depth ?? "advanced",
+						include_answer: args.include_answer ?? false,
+					};
 
-		if (args.topic) {
-			body.topic = args.topic;
-		}
-		if (args.time_range) {
-			body.time_range = args.time_range;
-		}
-		if (args.start_date) {
-			body.start_date = args.start_date;
-		}
-		if (args.end_date) {
-			body.end_date = args.end_date;
-		}
-		if (args.include_domains) {
-			body.include_domains = args.include_domains;
-		}
-		if (args.exclude_domains) {
-			body.exclude_domains = args.exclude_domains;
-		}
+					if (args.topic) {
+						body.topic = args.topic;
+					}
+					if (args.time_range) {
+						body.time_range = args.time_range;
+					}
+					if (args.start_date) {
+						body.start_date = args.start_date;
+					}
+					if (args.end_date) {
+						body.end_date = args.end_date;
+					}
+					if (args.include_domains) {
+						body.include_domains = args.include_domains;
+					}
+					if (args.exclude_domains) {
+						body.exclude_domains = args.exclude_domains;
+					}
 
-		try {
-			const data = await callTavilySearch(body);
-			return formatResults(data);
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			return `Tavily web search failed: ${message}`;
-		}
+					try {
+						const data = await callTavilySearch(body, context?.signal);
+						return { content: formatResults(data) };
+					} catch (error) {
+						const message =
+							error instanceof Error ? error.message : String(error);
+						return { content: `Tavily web search failed: ${message}` };
+					}
+				},
+			});
+		});
 	},
 });

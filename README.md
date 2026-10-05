@@ -1,12 +1,14 @@
 # opencode-tavily-web-search
 
-A custom [OpenCode](https://opencode.ai/) tool that brings live web search to OpenCode through the [Tavily](https://tavily.com) API.
+A live web search plugin for [OpenCode](https://opencode.ai/) **v2**, powered by the [Tavily](https://tavily.com) API.
 
-This tool only uses Tavily's **web search** endpoint. It does not enable Extract, Crawl, Map, or Research.
+It registers a `web_search` tool that OpenCode can call whenever it needs current information that is not in the project or its training data. It uses Tavily's **web search** endpoint only - not Extract, Crawl, Map, or Research.
+
+> **Requires OpenCode v2.** OpenCode v2 replaced the v1 plugin/tool APIs, and v1 tool files no longer load. This revision is a v2 plugin. For OpenCode v1, use the previous revision - see [OpenCode v1](#opencode-v1).
 
 ## What it does
 
-The tool exposes a `web_search` function to OpenCode. When called, it sends a request directly to `https://api.tavily.com/search` and returns ranked results with source links and content snippets.
+The plugin exposes a `web_search` function to OpenCode. When called, it sends a request directly to `https://api.tavily.com/search` and returns ranked results with source links and content snippets.
 
 ## Authentication
 
@@ -17,21 +19,49 @@ The tool prefers an explicit API key and falls back to Tavily's free keyless mod
 
 ## Requirements
 
-- [OpenCode](https://opencode.ai/) installed
+- [OpenCode](https://opencode.ai/) **v2** (`opencode --version` reports `2.x`)
+- [Node.js](https://nodejs.org/) and npm, to install the plugin's single dependency
 - An environment variable `TAVILY_API_KEY` (optional but recommended)
 
 ## Installation
 
-1. Copy the tool file into your global OpenCode tools directory:
+1. Clone the plugin and install its dependency:
 
    ```bash
-   mkdir -p ~/.config/opencode/tools
-   cp web_search.ts ~/.config/opencode/tools/web_search.ts
+   git clone git@github.com:mdchia/opencode-tavily-web-search.git
+   cd opencode-tavily-web-search
+   npm install
    ```
 
-2. Restart OpenCode.
+   `npm install` fetches `@opencode/plugin`, the v2 plugin SDK. It has to resolve from the plugin directory, because OpenCode loads local plugins with the host's module resolution.
 
-After restart, the `web_search` tool will appear alongside built-in tools like `webfetch` and `bash`.
+   > If your npm enforces a minimum release age and the current `@opencode/plugin` is too new, install with `npm install --min-release-age=0`.
+
+2. Register the plugin **directory** in your `opencode.json` (global `~/.config/opencode/opencode.json`, or a project file):
+
+   ```jsonc
+   {
+     "$schema": "https://opencode.ai/config.json",
+     "plugins": ["/absolute/path/to/opencode-tavily-web-search"]
+   }
+   ```
+
+   The path must point at the directory, not a file, and the directory needs an `index.ts` entry point (this repo has one).
+
+3. Restart OpenCode. The `web_search` tool then appears alongside the built-in tools.
+
+### Project-local install
+
+Copy the whole directory (including `node_modules`, or run `npm install` inside it afterwards) into `.opencode/plugins/` at the project root. OpenCode discovers plugin package directories there automatically, so no `opencode.json` entry is needed.
+
+## Verify it loaded
+
+```bash
+opencode plugin list
+# tavily-web-search  local  /path/to/opencode-tavily-web-search/index.ts
+```
+
+Or query the running server: `opencode api get /api/plugin`.
 
 ## Usage
 
@@ -68,18 +98,38 @@ Search for today's tech news, topic=news, time_range=day.
 Search arxiv.org for papers on mixture-of-experts routing, include_domains=["arxiv.org"].
 ```
 
-## Project-local install
-
-To make the tool available only inside a specific project, copy `web_search.ts` to `.opencode/tools/web_search.ts` at the project root instead of the global directory.
-
 ## Files
 
-- `web_search.ts` - OpenCode tool definition. Discovered automatically from `~/.config/opencode/tools/` or `.opencode/tools/`.
-- `README.md` - This file.
+- `index.ts` - plugin entry point for the directory (re-exports the plugin).
+- `web_search.ts` - plugin implementation; registers the `web_search` tool through `ctx.tool.transform`.
+- `package.json` - plugin package metadata; depends on `@opencode/plugin`.
+- `README.md` - this file.
+
+## How this changed for v2
+
+The v1 version was a **tool file** - `export default tool({ ... })` from `@opencode-ai/plugin`, dropped into `~/.config/opencode/tools/`. OpenCode v2 removed directory-based custom tools, so this is now a **plugin**:
+
+```ts
+import { Plugin } from "@opencode/plugin"
+
+export default Plugin.define({
+  id: "tavily-web-search",
+  async setup(ctx) {
+    await ctx.tool.transform((editor) => {
+      editor.add({ name: "web_search", description, input, async execute(input, context) { ... } })
+    })
+  },
+})
+```
+
+The tool name, arguments, behavior, and Tavily backend are unchanged. The plugin also forwards the session's abort signal to the request, so stopping a session cancels an in-flight search.
+
+## OpenCode v1
+
+The last v1-compatible revision is commit [`6e9303e`](https://github.com/mdchia/opencode-tavily-web-search/commit/6e9303e). Check that out (and copy `web_search.ts` into `~/.config/opencode/tools/`) if you are still on OpenCode v1.
 
 ## Notes
 
-- No `opencode.json` changes are required. OpenCode auto-discovers tools placed in `~/.config/opencode/tools/` or `.opencode/tools/`.
 - The tool uses `fetch` directly, so no extra Python dependencies or backend scripts are needed.
 - Tavily recommends `search_depth: "advanced"` for agent use; this tool uses that default.
 - If you need Tavily's Extract, Crawl, Map, or Research features, use the official [opencode-tavily](https://github.com/tavily-ai/opencode-tavily) plugin instead.

@@ -1,0 +1,23 @@
+{
+	"name": "opencode-tavily-web-search",
+	"version": "2.0.0",
+	"description": "Tavily live web search plugin for OpenCode",
+	"type": "module",
+	"main": "web_search.ts",
+	"exports": "./web_search.ts",
+	"files": [
+		"web_search.ts",
+		"README.md",
+		"LICENSE"
+	],
+	"keywords": [
+		"opencode",
+		"opencode-plugin",
+		"tavily",
+		"web-search"
+	],
+	"license": "MIT",
+	"dependencies": {
+		"@opencode/plugin": "^2.0.22"
+	}
+}
